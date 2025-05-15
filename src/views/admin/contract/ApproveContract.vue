@@ -1,28 +1,27 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
 
-// 模拟待审批合同列表
-const contracts = ref([
-  { 
-    id: 1, 
-    name: '软件开发合同A', 
-    customer: '客户公司A', 
-    finalizeDate: '2023-05-15', 
-    finalizer: '张三'
-  },
-  { 
-    id: 2, 
-    name: '设备采购合同B', 
-    customer: '客户公司B', 
-    finalizeDate: '2023-05-16', 
-    finalizer: '李四'
-  }
-])
-
+const contracts = ref([])
 const selectedContract = ref(null)
-const approvalResult = ref('approve') // approve or reject
+const approvalResult = ref('approve')
 const approvalComment = ref('')
 const successMessage = ref('')
+
+// 获取当前用户ID（根据你的实际实现调整）
+const currentUserId = ref(localStorage.getItem('userId') || 1)
+
+// 获取待审批合同
+const fetchContracts = async () => {
+  try {
+    const response = await axios.get('/api/contracts/pending-approval', {
+      params: { approvalUserId: currentUserId.value }
+    })
+    contracts.value = response.data
+  } catch (error) {
+    console.error('获取合同失败:', error)
+  }
+}
 
 const viewContract = (contract) => {
   selectedContract.value = contract
@@ -30,24 +29,40 @@ const viewContract = (contract) => {
   approvalComment.value = ''
 }
 
-const submitApproval = () => {
-  // 模拟提交
-  successMessage.value = approvalResult.value === 'approve' 
-    ? '合同审批通过，可以进行签订' 
-    : '合同审批未通过，已退回修改'
-  
-  // 从列表中移除已审批的合同
-  contracts.value = contracts.value.filter(c => c.id !== selectedContract.value.id)
-  
-  // 重置
-  setTimeout(() => {
-    selectedContract.value = null
-    approvalComment.value = ''
-    successMessage.value = ''
-  }, 2000)
+const submitApproval = async () => {
+  // 添加空值验证
+  if (!approvalComment.value.trim()) {
+    successMessage.value = '审批意见不能为空'
+    return
+  }
+  try {
+    await axios.post(`/api/contracts/${selectedContract.value.id}/approve`, {
+      approvalResult: approvalResult.value,
+      approvalComment: approvalComment.value
+    })
+    
+    successMessage.value = approvalResult.value === 'approve' 
+      ? '合同审批通过，可以进行签订' 
+      : '合同审批未通过，已退回修改'
+    
+    // 刷新列表
+    await fetchContracts()
+    
+    // 重置
+    setTimeout(() => {
+      selectedContract.value = null
+      approvalComment.value = ''
+      successMessage.value = ''
+    }, 2000)
+  } catch (error) {
+    console.error('提交审批失败:', error)
+    successMessage.value = '提交审批失败，请重试'
+  }
 }
-</script>
 
+// 初始化时获取合同
+onMounted(fetchContracts)
+</script>
 <template>
   <div>
     <h2 class="text-2xl font-bold mb-6">审批合同</h2>
@@ -77,8 +92,8 @@ const submitApproval = () => {
           <tr v-for="contract in contracts" :key="contract.id">
             <td>{{ contract.name }}</td>
             <td>{{ contract.customer }}</td>
-            <td>{{ contract.finalizeDate }}</td>
-            <td>{{ contract.finalizer }}</td>
+            <td>{{ contract.finalizedAt }}</td>
+            <td>{{ contract.creatorName }}</td>
             <td>
               <button @click="viewContract(contract)" class="btn btn-secondary">审批</button>
             </td>
@@ -93,15 +108,14 @@ const submitApproval = () => {
       <div class="mb-4">
         <p><strong>合同名称：</strong>{{ selectedContract.name }}</p>
         <p><strong>客户名称：</strong>{{ selectedContract.customer }}</p>
-        <p><strong>定稿日期：</strong>{{ selectedContract.finalizeDate }}</p>
-        <p><strong>定稿人：</strong>{{ selectedContract.finalizer }}</p>
+        <p><strong>定稿日期：</strong>{{ selectedContract.finalizedAt }}</p>
+        <p><strong>定稿人：</strong>{{ selectedContract.creatorName }}</p>
       </div>
       
       <div class="mb-4">
         <h4 class="font-bold mb-2">合同内容</h4>
         <div class="p-4 bg-gray-100 rounded">
-          <p>这里是合同{{ selectedContract.name }}的定稿内容...</p>
-          <p>包含了合同的各项条款、双方责任和义务等信息。</p>
+          <p>{{ selectedContract.content}}</p>
         </div>
       </div>
       

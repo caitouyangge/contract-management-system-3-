@@ -64,7 +64,7 @@ const submitAssignment = async () => {
       const errorData = await response.json()
       throw new Error(errorData.message || '分配失败')
     }
-    
+
     successMessage.value = '分配成功！'
     await fetchAssignableContracts()
     resetForm()
@@ -130,7 +130,7 @@ onMounted(() => {
           <tr v-for="contract in contracts" :key="contract.id" class="border-b">
             <td class="p-2">{{ contract.name }}</td>
             <td class="p-2">{{ contract.customer }}</td>
-            <td class="p-2">{{ contract.drafter }}</td>
+            <td class="p-2">{{ contract.creatorName }}</td>
             <td class="p-2">
               <button 
                 @click="selectedContract = contract"
