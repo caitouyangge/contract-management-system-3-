@@ -1,41 +1,74 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import axios from 'axios'
 
-// 模拟待会签合同列表
-const contracts = ref([
-  { id: 1, name: '软件开发合同A', customer: '客户公司A', draftDate: '2023-05-10', drafter: '张三' },
-  { id: 2, name: '设备采购合同B', customer: '客户公司B', draftDate: '2023-05-12', drafter: '李四' },
-  { id: 3, name: '服务外包合同C', customer: '客户公司C', draftDate: '2023-05-15', drafter: '王五' }
-])
-
+const contracts = ref([])
 const selectedContract = ref(null)
 const opinion = ref('')
 const successMessage = ref('')
+const userId = localStorage.getItem('userId')
+
+// 检查用户是否已会签该合同
+const hasCountersigned = (contract) => {
+  if (!contract.countersignComments) return false
+  return contract.countersignComments.split(';')
+    .some(comment => {
+      const parts = comment.split('|')
+      return parts.length > 0 && parts[0] === contract.creatorName
+    })
+}
+
+const fetchContracts = async () => {
+  const response = await axios.get('/api/contracts/countersign', {
+    params: { userId }
+  })
+  contracts.value = response.data.map(contract => ({
+    ...contract,
+    hasSigned: hasCountersigned(contract)
+  }))
+}
 
 const viewContract = (contract) => {
-  selectedContract.value = contract
+  selectedContract.value = {
+    ...contract,
+    hasSigned: hasCountersigned(contract)
+  }
   opinion.value = ''
 }
 
-const submitOpinion = () => {
+const submitOpinion = async () => {
   if (!opinion.value) {
     alert('请填写会签意见')
     return
   }
   
-  // 模拟提交
-  successMessage.value = '会签意见提交成功'
-  
-  // 从列表中移除已会签的合同
-  contracts.value = contracts.value.filter(c => c.id !== selectedContract.value.id)
-  
-  // 重置
-  setTimeout(() => {
-    selectedContract.value = null
-    opinion.value = ''
-    successMessage.value = ''
-  }, 2000)
+  try {
+    await axios.post('/api/contracts/countersign', {
+      contractId: selectedContract.value.id,
+      userId,
+      opinion: opinion.value
+    })
+    
+    successMessage.value = '会签意见提交成功'
+    selectedContract.value.hasSigned = true
+    await fetchContracts()
+    
+    setTimeout(() => {
+      selectedContract.value = null
+      opinion.value = ''
+      successMessage.value = ''
+    }, 2000)
+  } catch (error) {
+    alert(error.response?.data || '提交失败')
+  }
 }
+
+// 过滤掉已会签的合同
+const filteredContracts = computed(() => 
+  contracts.value.filter(c => !c.hasSigned)
+)
+
+onMounted(fetchContracts)
 </script>
 
 <template>
@@ -49,7 +82,7 @@ const submitOpinion = () => {
     <div v-if="!selectedContract">
       <h3 class="text-xl font-bold mb-4">待会签合同列表</h3>
       
-      <div v-if="contracts.length === 0" class="text-center p-4">
+      <div v-if="filteredContracts.length === 0" class="text-center p-4">
         <p>暂无待会签合同</p>
       </div>
       
@@ -64,11 +97,11 @@ const submitOpinion = () => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="contract in contracts" :key="contract.id">
+          <tr v-for="contract in filteredContracts" :key="contract.id">
             <td>{{ contract.name }}</td>
             <td>{{ contract.customer }}</td>
-            <td>{{ contract.draftDate }}</td>
-            <td>{{ contract.drafter }}</td>
+            <td>{{ contract.createdAt }}</td>
+            <td>{{ contract.creatorName }}</td>
             <td>
               <button @click="viewContract(contract)" class="btn btn-secondary">查看</button>
             </td>
@@ -83,15 +116,14 @@ const submitOpinion = () => {
       <div class="mb-4">
         <p><strong>合同名称：</strong>{{ selectedContract.name }}</p>
         <p><strong>客户名称：</strong>{{ selectedContract.customer }}</p>
-        <p><strong>起草日期：</strong>{{ selectedContract.draftDate }}</p>
-        <p><strong>起草人：</strong>{{ selectedContract.drafter }}</p>
+        <p><strong>起草日期：</strong>{{ selectedContract.createdAt }}</p>
+        <p><strong>起草人：</strong>{{ selectedContract.creatorName }}</p>
       </div>
       
       <div class="mb-4">
-        <h4 class="font-bold mb-2">合同内容</h4>
+        <h4 class="font-bold mb-2">合同内容：</h4>
         <div class="p-4 bg-gray-100 rounded">
-          <p>这里是合同{{ selectedContract.name }}的详细内容...</p>
-          <p>包含了合同的各项条款、双方责任和义务等信息。</p>
+          <p>{{ selectedContract.content }}</p>
         </div>
       </div>
       
@@ -102,7 +134,9 @@ const submitOpinion = () => {
         <textarea 
           id="opinion"
           v-model="opinion"
+          :disabled="selectedContract.hasSigned"
           class="form-control"
+          :class="{ 'bg-gray-100': selectedContract.hasSigned }"
           rows="4" 
           placeholder="请输入您的会签意见"
           required
@@ -111,8 +145,26 @@ const submitOpinion = () => {
       
       <div class="flex justify-between">
         <button @click="selectedContract = null" class="btn btn-secondary">返回</button>
-        <button @click="submitOpinion" class="btn btn-primary">提交会签意见</button>
+        <button 
+          @click="submitOpinion" 
+          :disabled="selectedContract.hasSigned"
+          class="btn"
+          :class="{
+            'btn-primary': !selectedContract.hasSigned,
+            'btn-disabled': selectedContract.hasSigned
+          }"
+        >
+          {{ selectedContract.hasSigned ? '已会签' : '提交会签意见' }}
+        </button>
       </div>
     </div>
   </div>
 </template>
+
+<style>
+.btn-disabled {
+  background-color: #e5e7eb;
+  cursor: not-allowed;
+  color: #9ca3af;
+}
+</style>

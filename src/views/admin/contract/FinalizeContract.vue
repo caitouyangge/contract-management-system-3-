@@ -1,61 +1,51 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
 
-// 模拟待定稿合同列表
-const contracts = ref([
-  { 
-    id: 1, 
-    name: '软件开发合同A', 
-    customer: '客户公司A', 
-    draftDate: '2023-05-10', 
-    drafter: '张三',
-    countersignStatus: '已完成',
-    opinions: [
-      { user: '李四', content: '第三条款需要明确交付时间', date: '2023-05-12' },
-      { user: '王五', content: '建议增加违约责任条款', date: '2023-05-13' }
-    ]
-  },
-  { 
-    id: 2, 
-    name: '设备采购合同B', 
-    customer: '客户公司B', 
-    draftDate: '2023-05-12', 
-    drafter: '李四',
-    countersignStatus: '进行中',
-    opinions: [
-      { user: '张三', content: '采购数量需要确认', date: '2023-05-14' }
-    ]
-  }
-])
-
+const contracts = ref([])
 const selectedContract = ref(null)
 const updatedContent = ref('')
 const successMessage = ref('')
+const userId = localStorage.getItem('userId')
+
+const fetchContracts = async () => {
+  const response = await axios.get('/api/contracts/finalize', {
+    params: { creatorId: userId }
+  })
+  contracts.value = response.data
+}
 
 const viewContract = (contract) => {
   selectedContract.value = contract
-  updatedContent.value = `这里是合同${contract.name}的修改后内容...\n根据会签意见已经做了相应调整。`
+  updatedContent.value = contract.content
 }
 
-const finalizeContract = () => {
+const finalizeContract = async () => {
   if (!updatedContent.value) {
     alert('请填写修改后的合同内容')
     return
   }
   
-  // 模拟提交
-  successMessage.value = '合同定稿成功，已提交审批'
-  
-  // 从列表中移除已定稿的合同
-  contracts.value = contracts.value.filter(c => c.id !== selectedContract.value.id)
-  
-  // 重置
-  setTimeout(() => {
-    selectedContract.value = null
-    updatedContent.value = ''
-    successMessage.value = ''
-  }, 2000)
+  try {
+    await axios.post('/api/contracts/finalize', {
+      contractId: selectedContract.value.id,
+      updatedContent: updatedContent.value
+    })
+    
+    successMessage.value = '合同定稿成功'
+    await fetchContracts()
+    
+    setTimeout(() => {
+      selectedContract.value = null
+      updatedContent.value = ''
+      successMessage.value = ''
+    }, 2000)
+  } catch (error) {
+    alert(error.response?.data || '定稿失败')
+  }
 }
+
+onMounted(fetchContracts)
 </script>
 
 <template>
@@ -79,7 +69,7 @@ const finalizeContract = () => {
             <th>合同名称</th>
             <th>客户名称</th>
             <th>起草日期</th>
-            <th>会签状态</th>
+            <th>起草人</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -87,22 +77,10 @@ const finalizeContract = () => {
           <tr v-for="contract in contracts" :key="contract.id">
             <td>{{ contract.name }}</td>
             <td>{{ contract.customer }}</td>
-            <td>{{ contract.draftDate }}</td>
+            <td>{{ contract.createdAt }}</td>
+            <td>{{ contract.creatorName }}</td>
             <td>
-              <span 
-                :class="contract.countersignStatus === '已完成' ? 'text-green-600' : 'text-yellow-600'"
-              >
-                {{ contract.countersignStatus }}
-              </span>
-            </td>
-            <td>
-              <button 
-                @click="viewContract(contract)" 
-                class="btn btn-secondary"
-                :disabled="contract.countersignStatus !== '已完成'"
-              >
-                {{ contract.countersignStatus === '已完成' ? '定稿' : '查看' }}
-              </button>
+              <button @click="viewContract(contract)" class="btn btn-secondary">定稿</button>
             </td>
           </tr>
         </tbody>
@@ -115,15 +93,18 @@ const finalizeContract = () => {
       <div class="mb-4">
         <p><strong>合同名称：</strong>{{ selectedContract.name }}</p>
         <p><strong>客户名称：</strong>{{ selectedContract.customer }}</p>
-        <p><strong>起草日期：</strong>{{ selectedContract.draftDate }}</p>
-        <p><strong>起草人：</strong>{{ selectedContract.drafter }}</p>
+        <p><strong>起草日期：</strong>{{ selectedContract.createdAt }}</p>
+        <p><strong>起草人：</strong>{{ selectedContract.creatorName }}</p>
       </div>
       
-      <div class="mb-4">
+      <div class="mb-4" v-if="selectedContract.countersignComments">
         <h4 class="font-bold mb-2">会签意见</h4>
-        <div v-for="(opinion, index) in selectedContract.opinions" :key="index" class="p-3 bg-gray-100 rounded mb-2">
-          <p><strong>{{ opinion.user }}</strong> ({{ opinion.date }})</p>
-          <p>{{ opinion.content }}</p>
+        <div v-for="(comment, index) in selectedContract.countersignComments.split(';')" :key="index" class="p-3 bg-gray-100 rounded mb-2">
+          <p v-if="comment">
+            <strong>{{ comment.split('|')[0] }}</strong> ({{ comment.split('|')[1] }})
+            <br>
+            {{ comment.split('|')[2] }}
+          </p>
         </div>
       </div>
       
@@ -135,7 +116,7 @@ const finalizeContract = () => {
           id="updated-content"
           v-model="updatedContent"
           class="form-control"
-          rows="6" 
+          rows="10" 
           placeholder="请根据会签意见修改合同内容"
           required
         ></textarea>
